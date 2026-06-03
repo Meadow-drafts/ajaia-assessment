@@ -1,0 +1,6 @@
+PLACEHOLDER: Add the unlisted walkthrough video URL here (YouTube or Loom).
+
+Recommended format:
+https://youtu.be/<video-id>
+or
+https://www.loom.com/share/<id>
