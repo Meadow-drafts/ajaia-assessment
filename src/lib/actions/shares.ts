@@ -120,7 +120,7 @@ export async function getSharedWithMe() {
       .select(`
         permission,
         documents (
-          id, title, updated_at, owner_id,
+          id, title, updated_at, created_at, owner_id, content,
           profiles!owner_id ( email, display_name )
         )
       `)
@@ -130,11 +130,22 @@ export async function getSharedWithMe() {
     if (error) throw new Error(error.message);
 
     // Flatten the join so each row looks like a document + permission
-    const docs = (data ?? []).map((row) => ({
-      // @ts-expect-error Supabase join inference
-      ...(row.documents as object),
-      permission: row.permission as "view" | "edit",
-    }));
+    const docs = (data ?? []).flatMap((row) => {
+      const document = Array.isArray(row.documents) ? row.documents[0] : row.documents;
+      if (!document) return [];
+
+      return [
+        {
+          id: document.id,
+          owner_id: document.owner_id,
+          title: document.title,
+          content: document.content,
+          created_at: document.created_at,
+          updated_at: document.updated_at,
+          permission: row.permission as "view" | "edit",
+        },
+      ];
+    });
 
     return { ok: true as const, data: docs };
   } catch (err) {

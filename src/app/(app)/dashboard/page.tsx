@@ -22,11 +22,22 @@ export default async function DashboardPage() {
     .eq("shared_with", user.id)
     .order("created_at", { ascending: false });
 
-  const sharedDocs: DocumentWithPermission[] = (sharedRows ?? []).map((row) => ({
-    // @ts-expect-error supabase nested join types
-    ...(row.documents as object),
-    permission: row.permission as "view" | "edit",
-  }));
+  const sharedDocs: DocumentWithPermission[] = (sharedRows ?? []).flatMap((row) => {
+    const document = Array.isArray(row.documents) ? row.documents[0] : row.documents;
+    if (!document) return [];
+
+    return [
+      {
+        id: document.id,
+        owner_id: document.owner_id,
+        title: document.title,
+        content: document.content,
+        created_at: document.created_at,
+        updated_at: document.updated_at,
+        permission: row.permission as "view" | "edit",
+      },
+    ];
+  });
 
   return (
     <div className="max-w-3xl mx-auto px-4 sm:px-6 py-8 sm:py-10">
