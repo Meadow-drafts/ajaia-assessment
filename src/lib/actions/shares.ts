@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { ShareWithProfile } from "@/lib/types";
+import { buildSharedDocuments } from "@/lib/shared-docs";
 
 type ActionResult<T = void> =
   | { ok: true; data: T }
@@ -93,15 +94,31 @@ export async function getDocumentShares(
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error("Not authenticated");
 
-    const { data, error } = await supabase
+    // Fetch shares without join (shared_with → auth.users, not profiles directly)
+    const { data: sharesData, error } = await supabase
       .from("document_shares")
-      .select("*, profiles!shared_with(email, display_name)")
+      .select("*")
       .eq("doc_id", docId)
       .order("created_at", { ascending: true });
 
     if (error) throw new Error(error.message);
+    if (!sharesData?.length) return { ok: true, data: [] };
 
-    return { ok: true, data: (data ?? []) as ShareWithProfile[] };
+    // Fetch profiles separately then merge
+    const userIds = sharesData.map((s) => s.shared_with);
+    const { data: profilesData } = await supabase
+      .from("profiles")
+      .select("id, email, display_name")
+      .in("id", userIds);
+
+    const profileMap = new Map((profilesData ?? []).map((p) => [p.id, p]));
+
+    const merged: ShareWithProfile[] = sharesData.map((s) => ({
+      ...s,
+      profiles: profileMap.get(s.shared_with) ?? null,
+    }));
+
+    return { ok: true, data: merged };
   } catch (err) {
     return { ok: false, error: (err as Error).message };
   }
@@ -120,8 +137,7 @@ export async function getSharedWithMe() {
       .select(`
         permission,
         documents (
-          id, title, updated_at, created_at, owner_id, content,
-          profiles!owner_id ( email, display_name )
+          id, title, updated_at, created_at, owner_id, content
         )
       `)
       .eq("shared_with", user.id)
@@ -129,23 +145,23 @@ export async function getSharedWithMe() {
 
     if (error) throw new Error(error.message);
 
-    // Flatten the join so each row looks like a document + permission
-    const docs = (data ?? []).flatMap((row) => {
-      const document = Array.isArray(row.documents) ? row.documents[0] : row.documents;
-      if (!document) return [];
+    const ownerIds = Array.from(
+      new Set(
+        (data ?? []).flatMap((row) => {
+          const document = Array.isArray(row.documents) ? row.documents[0] : row.documents;
+          return document ? [document.owner_id] : [];
+        })
+      )
+    );
 
-      return [
-        {
-          id: document.id,
-          owner_id: document.owner_id,
-          title: document.title,
-          content: document.content,
-          created_at: document.created_at,
-          updated_at: document.updated_at,
-          permission: row.permission as "view" | "edit",
-        },
-      ];
-    });
+    const { data: ownerProfiles } = ownerIds.length
+      ? await supabase
+          .from("profiles")
+          .select("id, email, display_name")
+          .in("id", ownerIds)
+      : { data: [] };
+
+    const docs = buildSharedDocuments(data ?? [], ownerProfiles ?? []);
 
     return { ok: true as const, data: docs };
   } catch (err) {

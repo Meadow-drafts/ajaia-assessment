@@ -27,6 +27,7 @@ export default function Editor({
       Underline,
       Placeholder.configure({ placeholder }),
     ],
+    immediatelyRender: false,
     // Pass null/undefined as empty string so TipTap renders a blank doc
     content: content ?? "",
     editable,

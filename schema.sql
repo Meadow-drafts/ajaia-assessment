@@ -49,6 +49,30 @@ create table if not exists document_shares (
   unique (doc_id, shared_with)
 );
 
+-- document_versions
+-- Snapshots saved by editors/owners so documents can be restored.
+-- Each version belongs to one document and records who saved it.
+create table if not exists document_versions (
+  id          uuid        primary key default gen_random_uuid(),
+  doc_id      uuid        not null references documents on delete cascade,
+  saved_by    uuid        not null references profiles on delete cascade,
+  content     jsonb       not null,
+  label       text,
+  created_at  timestamptz  not null default now()
+);
+
+-- document_comments
+-- Comments belong to a document and are authored by a user who can access it.
+-- resolved is a simple boolean so threads can be reopened.
+create table if not exists document_comments (
+  id          uuid        primary key default gen_random_uuid(),
+  doc_id      uuid        not null references documents on delete cascade,
+  author_id   uuid        not null references profiles on delete cascade,
+  body        text        not null,
+  resolved    boolean     not null default false,
+  created_at  timestamptz  not null default now()
+);
+
 
 -- ============================================================
 -- SECTION 2: RELATIONSHIPS (summary)
@@ -93,6 +117,18 @@ create index if not exists idx_document_shares_doc_id
 create index if not exists idx_document_shares_edit
   on document_shares (doc_id, shared_with)
   where permission = 'edit';
+
+-- Fast lookup of version history for a given document
+create index if not exists idx_document_versions_doc_id
+  on document_versions (doc_id, created_at desc);
+
+-- Fast lookup of comments for a given document
+create index if not exists idx_document_comments_doc_id
+  on document_comments (doc_id, created_at);
+
+-- Fast lookup of comments by author for moderation and UI checks
+create index if not exists idx_document_comments_author_id
+  on document_comments (author_id);
 
 
 -- ============================================================
@@ -140,6 +176,8 @@ create trigger trg_on_auth_user_created
 alter table profiles          enable row level security;
 alter table documents         enable row level security;
 alter table document_shares   enable row level security;
+alter table document_versions  enable row level security;
+alter table document_comments  enable row level security;
 
 -- profiles: service role (trigger) can insert on sign-up
 create policy "profiles: service role insert"
@@ -209,6 +247,110 @@ create policy "shares_recipient_select"
   on document_shares
   for select
   using (shared_with = auth.uid());
+
+-- document_versions: anyone with document access can read version history
+create policy "versions_select"
+  on document_versions
+  for select
+  using (
+    exists (
+      select 1 from documents
+      where id = doc_id
+        and (
+          owner_id = auth.uid()
+          or exists (
+            select 1 from document_shares
+            where doc_id = documents.id
+              and shared_with = auth.uid()
+          )
+        )
+    )
+  );
+
+-- document_versions: owners and shared editors can save snapshots
+create policy "versions_insert"
+  on document_versions
+  for insert
+  with check (
+    saved_by = auth.uid()
+    and exists (
+      select 1 from documents
+      where id = doc_id
+        and (
+          owner_id = auth.uid()
+          or exists (
+            select 1 from document_shares
+            where doc_id = documents.id
+              and shared_with = auth.uid()
+              and permission = 'edit'
+          )
+        )
+    )
+  );
+
+-- document_comments: anyone with document access can read comments
+create policy "comments_select"
+  on document_comments
+  for select
+  using (
+    exists (
+      select 1 from documents
+      where id = doc_id
+        and (
+          owner_id = auth.uid()
+          or exists (
+            select 1 from document_shares
+            where doc_id = documents.id
+              and shared_with = auth.uid()
+          )
+        )
+    )
+  );
+
+-- document_comments: anyone with document access can add a comment
+create policy "comments_insert"
+  on document_comments
+  for insert
+  with check (
+    author_id = auth.uid()
+    and exists (
+      select 1 from documents
+      where id = doc_id
+        and (
+          owner_id = auth.uid()
+          or exists (
+            select 1 from document_shares
+            where doc_id = documents.id
+              and shared_with = auth.uid()
+          )
+        )
+    )
+  );
+
+-- document_comments: allow document participants to toggle resolution
+create policy "comments_update"
+  on document_comments
+  for update
+  using (
+    exists (
+      select 1 from documents
+      where id = doc_id
+        and (
+          owner_id = auth.uid()
+          or exists (
+            select 1 from document_shares
+            where doc_id = documents.id
+              and shared_with = auth.uid()
+          )
+        )
+    )
+  );
+
+-- document_comments: authors can delete their own comments
+create policy "comments_delete"
+  on document_comments
+  for delete
+  using (author_id = auth.uid());
 
 
 -- ============================================================

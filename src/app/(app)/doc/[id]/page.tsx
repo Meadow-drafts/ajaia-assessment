@@ -20,10 +20,9 @@ export default async function DocPage({ params }: Props) {
 
   if (!doc) notFound();
 
-  // Check access: owner or shared
   const isOwner = doc.owner_id === user.id;
-
   let canEdit = isOwner;
+
   if (!isOwner) {
     const { data: share } = await supabase
       .from("document_shares")
@@ -36,5 +35,12 @@ export default async function DocPage({ params }: Props) {
     canEdit = share.permission === "edit";
   }
 
-  return <DocEditor doc={doc} canEdit={canEdit} isOwner={isOwner} />;
+  return (
+    <DocEditor
+      doc={doc}
+      canEdit={canEdit}
+      isOwner={isOwner}
+      currentUser={{ id: user.id, email: user.email ?? "" }}
+    />
+  );
 }

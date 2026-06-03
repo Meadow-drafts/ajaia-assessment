@@ -8,7 +8,17 @@ import { Upload, Loader2 } from "lucide-react";
 const ACCEPTED = ".txt,.md";
 const MAX_SIZE_MB = 1;
 
-export default function UploadButton() {
+interface Props {
+  onMutationStart?: () => void;
+  onMutationEnd?: () => void;
+  onRefresh?: () => void;
+}
+
+export default function UploadButton({
+  onMutationStart,
+  onMutationEnd,
+  onRefresh,
+}: Props) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -33,6 +43,7 @@ export default function UploadButton() {
       return;
     }
 
+    onMutationStart?.();
     setBusy(true);
     try {
       const formData = new FormData();
@@ -43,11 +54,13 @@ export default function UploadButton() {
 
       if (!res.ok) throw new Error(json.error ?? `Upload failed (${res.status})`);
 
+      onRefresh?.();
       router.push(`/doc/${json.id}`);
     } catch (err) {
       setError((err as Error).message);
     } finally {
       setBusy(false);
+      onMutationEnd?.();
     }
   }
 

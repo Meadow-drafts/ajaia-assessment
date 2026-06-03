@@ -36,6 +36,3 @@ Deployment
 
 - Recommended: Vercel for Next.js. Ensure `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are set in environment variables and Supabase Auth Site URL matches the deployed site.
 
-Contact
-
-If you'd like, I can assist with deploying to Vercel and recording a short demo script for the walkthrough video.

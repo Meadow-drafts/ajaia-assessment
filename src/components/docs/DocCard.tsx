@@ -2,24 +2,39 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { renameDocument, deleteDocument } from "@/lib/actions/documents";
 import { DocumentWithPermission } from "@/lib/types";
+import { downloadMarkdown } from "@/lib/export";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import ShareDialog from "@/components/docs/ShareDialog";
+import { Download, MoreHorizontal, Pencil, Share2, Trash2, User } from "lucide-react";
+import { getDocumentOwnerLabel } from "./doc-card-utils";
+import { getDocumentCardActions } from "./doc-card-actions";
 
 interface Props {
   doc: DocumentWithPermission;
   isOwner: boolean;
+  onMutationStart?: () => void;
+  onMutationEnd?: () => void;
+  onRefresh?: () => void;
 }
 
-export default function DocCard({ doc, isOwner }: Props) {
-  const router = useRouter();
+export default function DocCard({
+  doc,
+  isOwner,
+  onMutationStart,
+  onMutationEnd,
+  onRefresh,
+}: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [title, setTitle] = useState(doc.title);
+  const [shareOpen, setShareOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
+  const ownerLabel = !isOwner ? getDocumentOwnerLabel(doc) : null;
+  const { showShare, showExport } = getDocumentCardActions(isOwner);
 
   const formattedDate = new Date(doc.updated_at).toLocaleDateString(undefined, {
     month: "short",
@@ -29,19 +44,33 @@ export default function DocCard({ doc, isOwner }: Props) {
 
   function handleRename() {
     if (!title.trim()) { setRenaming(false); return; }
+    onMutationStart?.();
     startTransition(async () => {
-      const result = await renameDocument(doc.id, title);
-      setRenaming(false);
-      if (result.ok) router.refresh();
+      try {
+        const result = await renameDocument(doc.id, title);
+        setRenaming(false);
+        if (result.ok) onRefresh?.();
+      } finally {
+        onMutationEnd?.();
+      }
     });
   }
 
   function handleDelete() {
     if (!confirm(`Delete "${doc.title}"? This cannot be undone.`)) return;
+    onMutationStart?.();
     startTransition(async () => {
-      const result = await deleteDocument(doc.id);
-      if (result.ok) router.refresh();
+      try {
+        const result = await deleteDocument(doc.id);
+        if (result.ok) onRefresh?.();
+      } finally {
+        onMutationEnd?.();
+      }
     });
+  }
+
+  function handleExport() {
+    downloadMarkdown(title.trim() || doc.title, doc.content);
   }
 
   return (
@@ -66,6 +95,12 @@ export default function DocCard({ doc, isOwner }: Props) {
             <p className="text-xs text-muted-foreground mt-0.5">
               {formattedDate}
             </p>
+            {!isOwner && ownerLabel && (
+              <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+                <User className="h-3 w-3 shrink-0" />
+                <span className="truncate">{ownerLabel}</span>
+              </div>
+            )}
           </Link>
         )}
       </div>
@@ -76,6 +111,31 @@ export default function DocCard({ doc, isOwner }: Props) {
           <Badge variant="outline" className="text-xs">
             {doc.permission === "edit" ? "Can edit" : "View only"}
           </Badge>
+        )}
+
+        {showExport && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleExport}
+            className="h-8 w-8"
+            aria-label="Export document"
+            title="Export as Markdown"
+          >
+            <Download className="h-4 w-4" />
+          </Button>
+        )}
+
+        {showShare && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShareOpen(true)}
+            className="h-8"
+          >
+            <Share2 className="h-4 w-4" />
+            Share
+          </Button>
         )}
 
         {isOwner && !renaming && (
@@ -111,6 +171,10 @@ export default function DocCard({ doc, isOwner }: Props) {
           </div>
         )}
       </div>
+
+      {showShare && (
+        <ShareDialog docId={doc.id} open={shareOpen} onOpenChange={setShareOpen} />
+      )}
     </div>
   );
 }
